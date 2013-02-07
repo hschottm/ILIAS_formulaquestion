@@ -1,0 +1,64 @@
+assFormulaQuestion#:#Formula Question
+parseQuestion#:#Parse Question
+variables#:#Variables
+results#:#Results
+select_unit#:#--- Select Unit ---
+formula#:#Formula
+rating_simple#:#Simple Rating
+unit#:#Unit
+range_min#:#Range (Minimum)
+range_max#:#Range (Maximum)
+step_dim_min#:#Dimension (Minimum)
+step_dim_max#:#Dimension (Maximum)
+tolerance#:#Tolerance (%)
+points#:#Points
+result_units#:#Available Units
+all_units#:#All Units
+precision#:#Precision
+err_range#:#The maximum range must be greater than the minimum range
+err_no_min_range#:#Please enter a minimum range value
+err_no_max_range#:#Please enter a maximum range value
+err_no_precision#:#Please enter a precision
+err_wrong_precision#:#The precision must be an integer number greater or equal zero
+err_no_min_range_number#:#The minimum range must be number
+err_no_max_range_number#:#The maximum range must be number
+err_tolerance_wrong_value#:#The tolerance must be a percentage value between 0 and 100´
+err_wrong_points#:#You must enter points for a result
+err_no_formula#:#You must enter a formula
+err_wrong_rating_advanced#:#Please make sure that the addition of the advanced rating settings equals to 100 percent 
+rating_sign#:#Rate Sign
+rating_value#:#Rate Value
+rating_unit#:#Rate Unit
+rated_sign#:#Sign
+rated_value#:#Value
+rated_unit#:#Unit
+suggest_range#:#Suggest Range
+units#:#Units
+00_no_category#:#No category assigned
+category#:#Category
+categories#:#Categories
+new_category#:#New Category
+selected_unit#:#Selected Unit
+new_unit#:#New Unit
+factor#:#Factor
+baseunit#:#Base Unit
+no_selection#:#-- Nothing Selected --
+unit_placeholder#:#** New Unit **
+err_no_unitname#:#Please enter a unit name
+err_wrong_unitfactor#:#Please enter a correct factor for the unit
+err_unit_in_variables#:#The unit cannot be deleted. It is aleady in use in one or more test questions.
+err_unit_in_results#:#The unit cannot be deleted. It is aleady in use in one or more test questions.
+err_unit_is_baseunit#:#The unit cannot be deleted. It is used as base unit by other units.
+err_rating_advanced_not_allowed#:#A rating other than simple rating is not allowed since you are offering multiple result units with an identical base unit.
+delete#:#delete
+err_no_categoryname#:#Please enter a name for the category.
+err_wrong_categoryname#:#The category already exists.
+err_category_in_use#:#The category cannot be deleted. One or more units of the category are already in use.
+selected_category#:#Selected Category
+sequence#:#Sequence
+reorder#:#Reorder
+save_order#:#Save Order
+intprecision#:#Divisible By
+errRecursionInResult#:#The formula contains an infinite recursion.
+err_duplicate_results#:#You used a result variable more than once. This is not allowed in the question text.
+err_duplicate_variables#:#You used a variable more than once. This is not allowed in the question text.

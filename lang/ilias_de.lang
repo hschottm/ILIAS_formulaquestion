@@ -1,0 +1,64 @@
+assFormulaQuestion#:#Formelfrage
+parseQuestion#:#Frage analysieren
+variables#:#Variablen
+results#:#Ergebnisse
+select_unit#:#--- Einheit auswählen ---
+formula#:#Formel
+rating_simple#:#Einfache Bewertung
+unit#:#Einheit
+range_min#:#Bereich (Minimum)
+range_max#:#Bereich (Maximum)
+step_dim_min#:#Dimension (Minimum)
+step_dim_max#:#Dimension (Maximum)
+tolerance#:#Toleranz (%)
+points#:#Punkte
+result_units#:#Verfügbare Einheiten
+all_units#:#Alle Einheiten
+precision#:#Präzision
+err_range#:#Die obere Grenze muss größer als die untere Grenze sein
+err_no_min_range#:#Bitte geben Sie einen Wert für die untere Grenze ein
+err_no_max_range#:#Bitte geben Sie einen Wert für die obere Grenze ein
+err_no_precision#:#Bitte geben Sie einen Wert für die Präzision an
+err_wrong_precision#:#Die Präzision muss eine Ganzzahl größer oder gleich Null sein
+err_no_min_range_number#:#Die untere Grenze muss eine Zahl sein
+err_no_max_range_number#:#Die obere Grenze muss eine Zahl sein
+err_tolerance_wrong_value#:#Die Toleranz muss ein prozentualer Wert zwischen 0 und 100 sein
+err_wrong_points#:#Bitte vergeben Sie Punkte für das Ergebnis
+err_no_formula#:#Bitte geben Sie eine Formel zur Berechnung des Ergebnisses an
+err_wrong_rating_advanced#:#Bitte stellen Sie sicher, dass die Summe der erweiterten Bewertungsoptionen genau 100 Prozent ergibt
+rating_sign#:#Bewertung (Vorzeichen)
+rating_value#:#Bewertung (Wert)
+rating_unit#:#Bewertung (Einheit)
+rated_sign#:#Vorzeichen
+rated_value#:#Wert
+rated_unit#:#Einheit
+suggest_range#:#Grenzen vorschlagen
+units#:#Einheiten
+00_no_category#:#Keine Kategorie zugewiesen
+category#:#Kategorie
+categories#:#Kategorien
+new_category#:#Neue Kategorie
+selected_unit#:#Ausgewählte Einheit
+new_unit#:#Neue Einheit
+factor#:#Faktor
+baseunit#:#Basiseinheit
+no_selection#:#-- Keine Auswahl --
+unit_placeholder#:#** Neue Einheit **
+err_no_unitname#:#Bitte geben Sie einen Namen für die Einheit ein
+err_wrong_unitfactor#:#Bitte geben Sie einen korrekten Faktor für die Einheit ein
+err_unit_in_variables#:#Die Einheit kann nicht gelöscht werden. Sie wird bereits in Testfragen verwendet.
+err_unit_in_results#:#Die Einheit kann nicht gelöscht werden. Sie wird bereits in Testfragen verwendet.
+err_unit_is_baseunit#:#Die Einheit kann nicht gelöscht werden. Sie wird von anderen Einheiten als Basiseinheit verwendet.
+err_rating_advanced_not_allowed#:#Sie können nur die einfache Bewertung verwenden, da Sie mehrere Ergebniseinheiten mit einer identischen Basiseinheit verwenden.
+delete#:#Löschen
+err_no_categoryname#:#Bitte geben Sie einen Namen für die Kategorie ein.
+err_wrong_categoryname#:#Die Kategorie existiert bereits.
+err_category_in_use#:#Die Kategorie kann nicht gelöscht werden. Eine oder mehrere Einheiten der Kategorie sind bereits in Benutzung.
+selected_category#:#Ausgewählte Kategorie
+sequence#:#Reihenfolge
+reorder#:#Reihenfolge ändern
+save_order#:#Reihenfolge speichern
+intprecision#:#Teilbar durch
+errRecursionInResult#:#Die Formel enthält eine nicht auflösbare Rekursion.
+err_duplicate_results#:#Sie haben eine Ergebnisvariable mehrfach verwendet. Das ist innerhalb des Aufgabentextes nicht erlaubt!
+err_duplicate_variables#:#Sie haben eine Variable mehrfach verwendet. Das ist innerhalb des Aufgabentextes nicht erlaubt!

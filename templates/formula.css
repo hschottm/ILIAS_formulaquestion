@@ -1,0 +1,36 @@
+a.showelement {
+	padding-left: 16;
+	background: url(images/element_hide.png) no-repeat 0 top;
+}
+
+a.hideelement {
+	padding-left: 16;
+	background: url(images/element_show.png) no-repeat 0 top;
+}
+
+.category {
+	font-weight: bold;
+	font-style: italic;
+	font-size: 120%;
+	background-color: #b4d5ff;
+	border-top: 1px #666 solid;
+	border-bottom: 1px #666 solid;
+}
+
+ul.reorder {
+	position: relative;
+	width: 200px; 
+	height:19em;
+	background: transparent;
+	border: 1px solid gray;
+	list-style: none;
+	margin:0;
+	padding:0;
+	overflow: auto;
+}
+
+ul.reorder li {
+	border: 1px solid gray;
+	margin: 1px;
+	background: #f7f7f7;
+}
