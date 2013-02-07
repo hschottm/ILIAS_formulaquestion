@@ -1,0 +1,22 @@
+<table style="background: none; width: 99%;">
+	<tbody>
+		<tr>
+			<td></td>
+			<td>{TEXT_RANGE_MIN}</td>
+			<td>{TEXT_RANGE_MAX}</td>
+			<td>{TEXT_UNIT}</td>
+			<td>{TEXT_PRECISION}</td>
+			<td>{TEXT_INTPRECISION}</td>
+		</tr>
+<!-- BEGIN variable -->		
+		<tr>
+			<td>{TEXT_VARIABLE}</td>
+			<td><input type="text" class="numeric" size="12" name="range_min_{TEXT_VARIABLE}" {VALUE_RANGE_MIN} /></td>
+			<td><input type="text" class="numeric" size="12" name="range_max_{TEXT_VARIABLE}" {VALUE_RANGE_MAX} /></td>
+			<td>{VARIABLE_UNIT}</td>
+			<td><input type="text" class="numeric" size="4" name="precision_{TEXT_VARIABLE}" {VALUE_PRECISION} /></td>
+			<td><input type="text" class="numeric" size="4" name="intprecision_{TEXT_VARIABLE}" {VALUE_INTPRECISION} /></td>
+		</tr>
+<!-- END variable -->		
+	</tbody>
+</table>

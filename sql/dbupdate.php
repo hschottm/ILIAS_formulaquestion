@@ -1,7 +1,9 @@
 <#1>
-DROP TABLE IF EXISTS il_qpl_qst_formulaquestion_unit;
 DROP TABLE IF EXISTS il_qpl_qst_formulaquestion_constant;
+DROP TABLE IF EXISTS il_qpl_qst_formulaquestion_result;
 DROP TABLE IF EXISTS il_qpl_qst_formulaquestion_result_unit;
+DROP TABLE IF EXISTS il_qpl_qst_formulaquestion_unit;
+DROP TABLE IF EXISTS il_qpl_qst_formulaquestion_unit_category;
 DROP TABLE IF EXISTS il_qpl_qst_formulaquestion_variable;
 CREATE TABLE `il_qpl_qst_formulaquestion_variable` (
 `variable_id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY ,
@@ -63,8 +65,70 @@ CREATE TABLE `il_qpl_qst_formulaquestion_constant` (
 `constant` VARCHAR( 255 ) NOT NULL ,
 `value` DOUBLE NOT NULL DEFAULT '0'
 );
-INSERT INTO qpl_question_type (type_tag, plugin) VALUES ('assFormulaQuestion', 1);
 <#2>
 ALTER TABLE `il_qpl_qst_formulaquestion_variable` ADD `intprecision` INT NOT NULL DEFAULT '1';
 <#3>
 ALTER TABLE `il_qpl_qst_formulaquestion_result` DROP `rating_dim`;
+<#4>
+<?php
+	$res = $ilDB->queryF("SELECT * FROM qpl_qst_type WHERE type_tag = %s",
+		array('text'),
+		array('assFormulaQuestion')
+	);
+	if ($res->numRows() == 0)
+	{
+		$res = $ilDB->query("SELECT MAX(question_type_id) maxid FROM qpl_qst_type");
+		$data = $ilDB->fetchAssoc($res);
+		$max = $data["maxid"] + 1;
+
+		$affectedRows = $ilDB->manipulateF("INSERT INTO qpl_qst_type (question_type_id, type_tag, plugin) VALUES (%s, %s, %s)", 
+			array("integer", "text", "integer"),
+			array($max, 'assFormulaQuestion', 1)
+		);
+	}
+?>
+<#5>
+<?php
+$ilDB->modifyTableColumn("il_qpl_qst_formulaquestion_result", "formula", array("type" => "clob", "notnull" => false));	
+?>
+<#6>
+<?php
+$ilDB->manipulate("ALTER TABLE `il_qpl_qst_formulaquestion_result` CHANGE `precision` `resprecision` INT NOT NULL");
+?>
+<#7>
+<?php
+$ilDB->manipulate("ALTER TABLE `il_qpl_qst_formulaquestion_variable` CHANGE `precision` `varprecision` INT NOT NULL");
+?>
+<#8>
+<?php
+$ilDB->manipulate("RENAME TABLE `il_qpl_qst_formulaquestion_constant` TO `il_qpl_qst_fq_const`");
+$ilDB->manipulate("RENAME TABLE `il_qpl_qst_formulaquestion_result` TO `il_qpl_qst_fq_res`");
+$ilDB->manipulate("RENAME TABLE `il_qpl_qst_formulaquestion_result_unit` TO `il_qpl_qst_fq_res_unit`");
+$ilDB->manipulate("RENAME TABLE `il_qpl_qst_formulaquestion_unit` TO `il_qpl_qst_fq_unit`");
+$ilDB->manipulate("RENAME TABLE `il_qpl_qst_formulaquestion_unit_category` TO `il_qpl_qst_fq_ucat`");
+$ilDB->manipulate("RENAME TABLE `il_qpl_qst_formulaquestion_variable` TO `il_qpl_qst_fq_var`");
+?>
+<#9>
+<?php
+$ilMySQLAbstraction->performAbstraction('il_qpl_qst_fq_const');
+?>
+<#10>
+<?php
+$ilMySQLAbstraction->performAbstraction('il_qpl_qst_fq_res');
+?>
+<#11>
+<?php
+$ilMySQLAbstraction->performAbstraction('il_qpl_qst_fq_res_unit');
+?>
+<#12>
+<?php
+$ilMySQLAbstraction->performAbstraction('il_qpl_qst_fq_unit');
+?>
+<#13>
+<?php
+$ilMySQLAbstraction->performAbstraction('il_qpl_qst_fq_ucat');
+?>
+<#14>
+<?php
+$ilMySQLAbstraction->performAbstraction('il_qpl_qst_fq_var');
+?>

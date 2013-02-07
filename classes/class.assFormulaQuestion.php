@@ -29,7 +29,7 @@ include_once "./Modules/Test/classes/inc.AssessmentConstants.php";
 * assFormulaQuestion is a class for single choice questions.
 *
 * @author		Helmut Schottmüller <helmut.schottmueller@mac.com>
-* @version	$Id: class.assFormulaQuestion.php 1133 2010-01-19 14:53:56Z hschottm $
+* @version	$Id: class.assFormulaQuestion.php 1236 2010-02-15 15:44:16Z hschottm $
 * @ingroup ModulesTestQuestionPool
 */
 class assFormulaQuestion extends assQuestion
@@ -54,15 +54,15 @@ class assFormulaQuestion extends assQuestion
 	* @access public
 	* @see assQuestion:assQuestion()
 	*/
-	function assFormulaQuestion(
+	function __construct(
 		$title = "",
 		$comment = "",
 		$author = "",
 		$owner = -1,
 		$question = ""
-	  )
+	)
 	{
-		$this->assQuestion($title, $comment, $author, $owner, $question);
+		parent::__construct($title, $comment, $author, $owner, $question);
 		$this->variables = array();
 		$this->results = array();
 		$this->units = array();
@@ -216,6 +216,7 @@ class assFormulaQuestion extends assQuestion
 	{
 		global $ilDB, $ilLog;
 
+		if ((count($this->results) == 0) && (count($this->variables) == 0)) return;
 		$text = $this->getQuestion();
 		if (preg_match_all("/(\\\$r\\d+)/ims", $this->getQuestion(), $rmatches))
 		{
@@ -240,11 +241,17 @@ class assFormulaQuestion extends assQuestion
 					else
 					{
 						// save value to db
-						$statement = $ilDB->prepareManip("INSERT INTO tst_solutions (active_fi, question_fi, value1, value2, points, pass) VALUES (?, ?, ?, ?, ?, ?)", 
-							array("integer", "integer", "text", "text", "float", "integer")
-						);
-						$data = array($userdata["active_id"], $this->getId(), $variable, $varObj->getValue(), 0, $userdata["pass"]);
-						$affectedRows = $ilDB->execute($statement, $data);
+						$next_id = $ilDB->nextId('tst_solutions');
+						$affectedRows = $ilDB->insert("tst_solutions", array(
+							"solution_id" => array("integer", $next_id),
+							"active_fi" => array("integer", $userdata["active_id"]),
+							"question_fi" => array("integer", $this->getId()),
+							"value1" => array("clob", $variable),
+							"value2" => array("clob", $varObj->getValue()),
+							"points" => array("float", 0),
+							"pass" => array("integer", $userdata["pass"]),
+							"tstamp" => array("integer", time())
+						));
 					}
 				}
 				$unit = (is_object($varObj->getUnit())) ? $varObj->getUnit()->getUnit() : "";
@@ -378,7 +385,7 @@ class assFormulaQuestion extends assQuestion
 					}
 					else
 					{
-						$found = $resObj->getResultInfo($this->getVariables(), $this->getResults(), $resObj->calculateFormula($this->getVariables(), $this->getResults()), $resObj->getUnit()->getId(), $this->getUnits());
+						$found = $resObj->getResultInfo($this->getVariables(), $this->getResults(), $resObj->calculateFormula($this->getVariables(), $this->getResults()), is_object($resObj->getUnit()) ? $resObj->getUnit()->getId() : NULL, $this->getUnits());
 					}
 					$resulttext = "(";
 					if ($resObj->getRatingSimple())
@@ -406,8 +413,7 @@ class assFormulaQuestion extends assQuestion
 		global $ilDB;
 		
 		$categories = array();
-		$statement = $ilDB->prepare("SELECT * FROM il_qpl_qst_formulaquestion_unit_category ORDER BY category");
-		$result = $ilDB->execute($statement);
+		$result = $ilDB->query("SELECT * FROM il_qpl_qst_fq_ucat ORDER BY category");
 		if ($result->numRows())
 		{
 			while ($row = $ilDB->fetchAssoc($result))
@@ -435,9 +441,10 @@ class assFormulaQuestion extends assQuestion
 			{
 				if (preg_match("/reorder_unit_(\\d+)/", $unit_id, $matches))
 				{
-					$statement = $ilDB->prepareManip("UPDATE il_qpl_qst_formulaquestion_unit SET sequence = ? WHERE unit_id = ?",
-						array("integer", "integer"));
-					$result = $ilDB->execute($statement, array($sequence, $matches[1]));
+					$affectedRows = $ilDB->manipulateF("UPDATE il_qpl_qst_fq_unit SET sequence = %s WHERE unit_id = %s",
+						array('integer','integer'),
+						array($sequence, $matches[1])
+					);
 					$sequence++;
 				}
 			}
@@ -449,21 +456,21 @@ class assFormulaQuestion extends assQuestion
 		global $ilDB;
 		
 		if (strlen($category) == 0) return null;
-		$statement = $ilDB->prepare("SELECT category FROM il_qpl_qst_formulaquestion_unit_category WHERE category = ?");
-		$result = $ilDB->execute($statement, array($category));
+		$result = $ilDB->queryF("SELECT category FROM il_qpl_qst_fq_ucat WHERE category = %s",
+			array("text"),
+			array($category)
+		);
 		if (!$result->numRows())
 		{
-			$statement = $ilDB->prepareManip("INSERT INTO il_qpl_qst_formulaquestion_unit_category (category) VALUES (?)");
-			$result = $ilDB->execute($statement, array($category));
-			if (PEAR::isError($result)) 
-			{
-				global $ilias;
-				$ilias->raiseError($result->getMessage());
-			}
-			else
-			{
-				return $ilDB->getLastInsertId();
-			}
+			$next_id = $ilDB->nextId('il_qpl_qst_fq_ucat');
+			$affectedRows = $ilDB->manipulateF("INSERT INTO il_qpl_qst_fq_ucat (category_id, category) VALUES (%s, %s)",
+				array('integer','text'),
+				array(
+					$next_id,
+					$category
+				)
+			);
+			return $next_id;
 		}
 		return null;
 	}
@@ -473,46 +480,55 @@ class assFormulaQuestion extends assQuestion
 		global $ilDB;
 		
 		$name = (strlen($unitname)) ? $unitname : $this->getPlugin()->txt("unit_placeholder");
-		$statement = $ilDB->prepareManip("INSERT INTO il_qpl_qst_formulaquestion_unit (unit, factor, baseunit_fi, category_fi, sequence) VALUES (?, ?, NULL, ?, 0)",
-			array("text", "integer", "integer"));
-		$result = $ilDB->execute($statement, array($name, 1, $category));
-		if (PEAR::isError($result)) 
-		{
-			global $ilias;
-			$ilias->raiseError($result->getMessage());
-		}
-		else
-		{
-			$this->clearUnits();
-			return $ilDB->getLastInsertId();
-		}
+		$next_id = $ilDB->nextId('il_qpl_qst_fq_unit');
+		$affectedRows = $ilDB->manipulateF("INSERT INTO il_qpl_qst_fq_unit (unit_id, unit, factor, baseunit_fi, category_fi, sequence) VALUES (%s, %s, %s, %s, %s, %s)",
+			array('integer','text','float','integer','integer','integer'),
+			array(
+				$next_id,
+				$name,
+				1,
+				NULL,
+				$category,
+				0
+			)
+		);
+		$this->clearUnits();
+		return $next_id;
 	}
 
 	private function checkDeleteUnit($id, $category_id = null)
 	{
 		global $ilDB;
 		
-		$statement = $ilDB->prepare("SELECT * FROM il_qpl_qst_formulaquestion_variable WHERE unit_fi = ?", array("integer"));
-		$result = $ilDB->execute($statement, array($id));
+		$result = $ilDB->queryF("SELECT * FROM il_qpl_qst_fq_var WHERE unit_fi = %s",
+			array('integer'),
+			array($id)
+		);
 		if ($result->numRows() > 0)
 		{
 			return $this->getPlugin()->txt("err_unit_in_variables");
 		}
-		$statement = $ilDB->prepare("SELECT * FROM il_qpl_qst_formulaquestion_result WHERE unit_fi = ?", array("integer"));
-		$result = $ilDB->execute($statement, array($id));
+		$result = $ilDB->queryF("SELECT * FROM il_qpl_qst_fq_res WHERE unit_fi = %s",
+			array('integer'),
+			array($id)
+		);
 		if ($result->numRows() > 0)
 		{
 			return $this->getPlugin()->txt("err_unit_in_results");
 		}
 		if (!is_null($category_id))
 		{
-			$statement = $ilDB->prepare("SELECT * FROM il_qpl_qst_formulaquestion_unit WHERE baseunit_fi = ? AND category_fi <> ?", array("integer", "integer"));
-			$result = $ilDB->execute($statement, array($id, $category_id));
+			$result = $ilDB->queryF("SELECT * FROM il_qpl_qst_fq_unit WHERE baseunit_fi = %s AND category_fi <> %s",
+				array('integer','integer'),
+				array($id, $category_id)
+			);
 		}
 		else
 		{
-			$statement = $ilDB->prepare("SELECT * FROM il_qpl_qst_formulaquestion_unit WHERE baseunit_fi = ?", array("integer"));
-			$result = $ilDB->execute($statement, array($id));
+			$result = $ilDB->queryF("SELECT * FROM il_qpl_qst_fq_unit WHERE baseunit_fi = %s",
+				array('integer'),
+				array($id)
+			);
 		}
 		if ($result->numRows() > 0)
 		{
@@ -561,8 +577,10 @@ class assFormulaQuestion extends assQuestion
 	{
 		global $ilDB;
 		
-		$statement = $ilDB->prepare("SELECT * FROM il_qpl_qst_formulaquestion_unit WHERE category_fi = ?", array("integer"));
-		$result = $ilDB->execute($statement, array($id));
+		$result = $ilDB->queryF("SELECT * FROM il_qpl_qst_fq_unit WHERE category_fi = %s",
+			array('integer'),
+			array($id)
+		);
 		return $result->numRows();
 	}
 	
@@ -570,14 +588,20 @@ class assFormulaQuestion extends assQuestion
 	{
 		global $ilDB;
 
-		$statement = $ilDB->prepare("SELECT unit_fi FROM il_qpl_qst_formulaquestion_result_unit WHERE unit_fi = ?", array("integer"));
-		$result = $ilDB->execute($statement, array($id));
+		$result = $ilDB->queryF("SELECT unit_fi FROM il_qpl_qst_fq_res_unit WHERE unit_fi = %s",
+			array('integer'),
+			array($id)
+		);
 		if ($result->numRows()) return true;
-		$statement = $ilDB->prepare("SELECT unit_fi FROM il_qpl_qst_formulaquestion_variable WHERE unit_fi = ?", array("integer"));
-		$result = $ilDB->execute($statement, array($id));
+		$result = $ilDB->queryF("SELECT unit_fi FROM il_qpl_qst_fq_var WHERE unit_fi = %s",
+			array('integer'),
+			array($id)
+		);
 		if ($result->numRows()) return true;
-		$statement = $ilDB->prepare("SELECT unit_fi FROM il_qpl_qst_formulaquestion_result WHERE unit_fi = ?", array("integer"));
-		$result = $ilDB->execute($statement, array($id));
+		$result = $ilDB->queryF("SELECT unit_fi FROM il_qpl_qst_fq_res WHERE unit_fi = %s",
+			array('integer'),
+			array($id)
+		);
 		return ($result->numRows()) ? true : false;
 	}
 	
@@ -585,8 +609,10 @@ class assFormulaQuestion extends assQuestion
 	{
 		global $ilDB;
 		
-		$statement = $ilDB->prepare("SELECT * FROM il_qpl_qst_formulaquestion_unit WHERE category_fi = ?", array("integer"));
-		$result = $ilDB->execute($statement, array($id));
+		$result = $ilDB->queryF("SELECT * FROM il_qpl_qst_fq_unit WHERE category_fi = %s",
+			array('integer'),
+			array($id)
+		);
 		if ($result->numRows() > 0)
 		{
 			while ($row = $ilDB->fetchAssoc($result))
@@ -604,17 +630,11 @@ class assFormulaQuestion extends assQuestion
 
 		$res = $this->checkDeleteUnit($id);
 		if (!is_null($res)) return $res;
-		$statement = $ilDB->prepareManip("DELETE FROM il_qpl_qst_formulaquestion_unit WHERE unit_id = ?", array("integer"));
-		$result = $ilDB->execute($statement, array($id));
-		if (PEAR::isError($result)) 
-		{
-			global $ilias;
-			$ilias->raiseError($result->getMessage());
-		}
-		else
-		{
-			$this->clearUnits();
-		}
+		$affectedRows = $ilDB->manipulateF("DELETE FROM il_qpl_qst_fq_unit WHERE unit_id = %s",
+			array('integer'),
+			array($id)
+		);
+		if ($affectedRows > 0) $this->clearUnits();
 		return null;
 	}
 	
@@ -625,20 +645,19 @@ class assFormulaQuestion extends assQuestion
 		$res = $this->checkDeleteCategory($id);
 		if (!is_null($res)) return $this->getPlugin()->txt("err_category_in_use");
 
-		$statement = $ilDB->prepare("SELECT * FROM il_qpl_qst_formulaquestion_unit WHERE category_fi = ?", array("integer"));
-		$result = $ilDB->execute($statement, array($id));
+		$result = $ilDB->queryF("SELECT * FROM il_qpl_qst_fq_unit WHERE category_fi = %s",
+			array('integer'),
+			array($id)
+		);
 		while ($row = $ilDB->fetchAssoc($result))
 		{
 			$this->deleteUnit($row["unit_id"]);
 		}
-		$statement = $ilDB->prepareManip("DELETE FROM il_qpl_qst_formulaquestion_unit_category WHERE category_id = ?", array("integer"));
-		$result = $ilDB->execute($statement, array($id));
-		if (PEAR::isError($result)) 
-		{
-			global $ilias;
-			$ilias->raiseError($result->getMessage());
-		}
-		else
+		$affectedRows = $ilDB->manipulateF("DELETE FROM il_qpl_qst_fq_ucat WHERE category_id = %s",
+			array('integer'),
+			array($id)
+		);
+		if ($affectedRows > 0) 
 		{
 			$this->clearUnits();
 		}
@@ -649,8 +668,10 @@ class assFormulaQuestion extends assQuestion
 	{
 		global $ilDB;
 		
-		$statement = $ilDB->prepare("SELECT sequence FROM il_qpl_qst_formulaquestion_unit WHERE unit_id = ?");
-		$result = $ilDB->execute($statement, array($id));
+		$result = $ilDB->queryF("SELECT sequence FROM il_qpl_qst_fq_unit WHERE unit_id = %s",
+			array('integer'),
+			array($id)
+		);
 		if ($result->numRows())
 		{
 			$row = $ilDB->fetchAssoc($result);
@@ -660,10 +681,11 @@ class assFormulaQuestion extends assQuestion
 				$factor = 1;
 				$baseunit = null;
 			}
-			$statement = $ilDB->prepareManip("UPDATE il_qpl_qst_formulaquestion_unit SET unit = ?, factor = ?, baseunit_fi = ?, category_fi = ?, sequence = ? WHERE unit_id = ?",
-				array("text", "float", "integer", "integer", "integer", "integer"));
-			$result = $ilDB->execute($statement, array($name, $factor, $baseunit, $category, $sequence, $id));
-			$this->clearUnits();
+			$affectedRows = $ilDB->manipulateF("UPDATE il_qpl_qst_fq_unit SET unit = %s, factor = %s, baseunit_fi = %s, category_fi = %s, sequence = %s WHERE unit_id = %s",
+				array('text','float','integer','integer','integer','integer'),
+				array($name, $factor, $baseunit, $category, $sequence, $id)
+			);
+			if ($affectedRows > 0) $this->clearUnits();
 		}
 	}
 	
@@ -671,8 +693,10 @@ class assFormulaQuestion extends assQuestion
 	{
 		global $ilDB;
 		
-		$statement = $ilDB->prepare("SELECT * FROM il_qpl_qst_formulaquestion_unit_category WHERE category = ?");
-		$result = $ilDB->execute($statement, array($id));
+		$result = $ilDB->queryF("SELECT * FROM il_qpl_qst_fq_ucat WHERE category = %s",
+			array('integer'),
+			array($id)
+		);
 		if ($result->numRows())
 		{
 			$row = $ilDB->fetchAssoc($result);
@@ -682,9 +706,10 @@ class assFormulaQuestion extends assQuestion
 			}
 		}
 
-		$statement = $ilDB->prepareManip("UPDATE il_qpl_qst_formulaquestion_unit_category SET category = ? WHERE category_id = ?",
-			array("text", "integer"));
-		$result = $ilDB->execute($statement, array($name, $id));
+		$affectedRows = $ilDB->manipulateF("UPDATE il_qpl_qst_fq_ucat SET category = %s WHERE category_id = %s",
+			array('text','integer'),
+			array($name, $id)
+		);
 	}
 	
 	protected function loadUnits()
@@ -692,8 +717,7 @@ class assFormulaQuestion extends assQuestion
 		global $ilDB;
 		
 		$units = array();
-		$statement = $ilDB->prepare("SELECT il_qpl_qst_formulaquestion_unit.*, il_qpl_qst_formulaquestion_unit_category.category FROM il_qpl_qst_formulaquestion_unit, il_qpl_qst_formulaquestion_unit_category WHERE il_qpl_qst_formulaquestion_unit.category_fi = il_qpl_qst_formulaquestion_unit_category.category_id ORDER BY il_qpl_qst_formulaquestion_unit_category.category, il_qpl_qst_formulaquestion_unit.sequence");
-		$result = $ilDB->execute($statement);
+		$result = $ilDB->query("SELECT il_qpl_qst_fq_unit.*, il_qpl_qst_fq_ucat.category FROM il_qpl_qst_fq_unit, il_qpl_qst_fq_ucat WHERE il_qpl_qst_fq_unit.category_fi = il_qpl_qst_fq_ucat.category_id ORDER BY il_qpl_qst_fq_ucat.category, il_qpl_qst_fq_unit.sequence");
 		if ($result->numRows())
 		{
 			$this->getPlugin()->includeClass("class.assFormulaQuestionUnit.php");
@@ -712,8 +736,7 @@ class assFormulaQuestion extends assQuestion
 
 		if (count($this->categorizedUnits) == 0)
 		{
-			$statement = $ilDB->prepare("SELECT il_qpl_qst_formulaquestion_unit.*, il_qpl_qst_formulaquestion_unit_category.category FROM il_qpl_qst_formulaquestion_unit, il_qpl_qst_formulaquestion_unit_category WHERE il_qpl_qst_formulaquestion_unit.category_fi = il_qpl_qst_formulaquestion_unit_category.category_id ORDER BY il_qpl_qst_formulaquestion_unit_category.category, il_qpl_qst_formulaquestion_unit.sequence");
-			$result = $ilDB->execute($statement);
+			$result = $ilDB->query("SELECT il_qpl_qst_fq_unit.*, il_qpl_qst_fq_ucat.category FROM il_qpl_qst_fq_unit, il_qpl_qst_fq_ucat WHERE il_qpl_qst_fq_unit.category_fi = il_qpl_qst_fq_ucat.category_id ORDER BY il_qpl_qst_fq_ucat.category, il_qpl_qst_fq_unit.sequence");
 			if ($result->numRows())
 			{
 				$this->getPlugin()->includeClass("class.assFormulaQuestionUnit.php");
@@ -759,8 +782,10 @@ class assFormulaQuestion extends assQuestion
 		global $ilDB;
 		
 		$units = array();
-		$statement = $ilDB->prepare("SELECT il_qpl_qst_formulaquestion_unit.* FROM il_qpl_qst_formulaquestion_unit, il_qpl_qst_formulaquestion_unit_category WHERE il_qpl_qst_formulaquestion_unit.category_fi = il_qpl_qst_formulaquestion_unit_category.category_id AND il_qpl_qst_formulaquestion_unit_category.category_id = ? ORDER BY il_qpl_qst_formulaquestion_unit.sequence");
-		$result = $ilDB->execute($statement, array("$category"));
+		$result = $ilDB->queryF("SELECT il_qpl_qst_fq_unit.* FROM il_qpl_qst_fq_unit, il_qpl_qst_fq_ucat WHERE il_qpl_qst_fq_unit.category_fi = il_qpl_qst_fq_ucat.category_id AND il_qpl_qst_fq_ucat.category_id = %s ORDER BY il_qpl_qst_fq_unit.sequence",
+			array('integer'),
+			array($category)
+		);
 		if ($result->numRows())
 		{
 			$this->getPlugin()->includeClass("class.assFormulaQuestionUnit.php");
@@ -787,14 +812,11 @@ class assFormulaQuestion extends assQuestion
 	}
 	
 	/**
-	* Returns true, if a single choice question is complete for use
-	*
-	* Returns true, if a single choice question is complete for use
+	* Returns true, if the question is complete for use
 	*
 	* @return boolean True, if the single choice question is complete for use, otherwise false
-	* @access public
 	*/
-	function isComplete()
+	public function isComplete()
 	{
 		if (($this->title) and ($this->author) and ($this->question) and ($this->getMaximumPoints() > 0))
 		{
@@ -815,136 +837,74 @@ class assFormulaQuestion extends assQuestion
 	{
 		global $ilDB, $ilLog;
 
-		$complete = "0";
-		if ($this->isComplete())
-		{
-			$complete = "1";
-		}
-		$estw_time = $this->getEstimatedWorkingTime();
-		$estw_time = sprintf("%02d:%02d:%02d", $estw_time['h'], $estw_time['m'], $estw_time['s']);
+		$this->saveQuestionDataToDb($original_id);
 
-		include_once("./Services/RTE/classes/class.ilRTE.php");
-		if ($this->id == -1)
-		{
-			// Neuen Datensatz schreiben
-			$now = getdate();
-			$created = sprintf("%04d%02d%02d%02d%02d%02d", $now['year'], $now['mon'], $now['mday'], $now['hours'], $now['minutes'], $now['seconds']);
-			
-			$statement = $ilDB->prepareManip("INSERT INTO qpl_questions (question_id, question_type_fi, obj_fi, title, comment, author, owner, question_text, points, working_time, complete, created, original_id, TIMESTAMP) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)", 
-				array("integer", "integer", "text", "text", "text", "integer", "text", "float", "time", "text", "timestamp")
-			);
-			$data = array(
-				$this->getQuestionTypeID(), 
-				$this->getObjId(), 
-				$this->getTitle(), 
-				$this->getComment(), 
-				$this->getAuthor(), 
-				$this->getOwner(), 
-				ilRTE::_replaceMediaObjectImageSrc($this->question, 0), 
-				$this->getMaximumPoints(),
-				$estw_time,
-				$complete,
-				$created,
-				($original_id) ? $original_id : NULL
-			);
-			$affectedRows = $ilDB->execute($statement, $data);
-			$this->setId($ilDB->getLastInsertId());
-			// create page object of question
-			$this->createPageObject();
-
-			if ($this->getTestId() > 0)
-			{
-				$this->insertIntoTest($this->getTestId());
-			}
-		}
-		else
-		{
-			// Vorhandenen Datensatz aktualisieren
-			$statement = $ilDB->prepareManip("UPDATE qpl_questions SET obj_fi = ?, title = ?, comment = ?, author = ?, question_text = ?, points = ?, working_time=?, complete = ? WHERE question_id = ?", 
-				array("integer", "text", "text", "text", "text", "float", "time", "text", "integer")
-			);
-			$data = array(
-				$this->getObjId(), 
-				$this->getTitle(), 
-				$this->getComment(), 
-				$this->getAuthor(), 
-				ilRTE::_replaceMediaObjectImageSrc($this->question, 0), 
-				$this->getMaximumPoints(),
-				$estw_time,
-				$complete,
-				$this->getId()
-			);
-			$affectedRows = $ilDB->execute($statement, $data);
-		}
 		// save variables
-		$statement = $ilDB->prepareManip("DELETE FROM il_qpl_qst_formulaquestion_variable WHERE question_fi = ?", 
-			array("integer")
+		$affectedRows = $ilDB->manipulateF("DELETE FROM il_qpl_qst_fq_var WHERE question_fi = %s", 
+			array("integer"),
+			array($this->getId())
 		);
-		$data = array($this->getId());
-		$affectedRows = $ilDB->execute($statement, $data);
 		foreach ($this->variables as $variable)
 		{
-			$statement = $ilDB->prepareManip("INSERT INTO il_qpl_qst_formulaquestion_variable (variable_id, question_fi, variable, range_min, range_max, unit_fi, `precision`, intprecision) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?)", 
-				array("integer", "text", "float", "float", "integer", "integer", "integer")
+			$next_id = $ilDB->nextId('il_qpl_qst_fq_var');
+			$affectedRows = $ilDB->manipulateF("INSERT INTO il_qpl_qst_fq_var (variable_id, question_fi, variable,range_min, range_max, unit_fi, varprecision, intprecision) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+				array('integer','integer', 'text', 'float', 'float', 'integer', 'integer', 'integer'),
+				array(
+					$next_id,
+					$this->getId(),
+					$variable->getVariable(),
+					((strlen($variable->getRangeMin())) ? $variable->getRangeMin() : 0.0),
+					((strlen($variable->getRangeMax())) ? $variable->getRangeMax() : 0.0),
+					(is_object($variable->getUnit()) ? $variable->getUnit()->getId() : NULL),
+					$variable->getPrecision(),
+					$variable->getIntprecision()
+				)
 			);
-			$data = array(
-				$this->getId(),
-				$variable->getVariable(),
-				((strlen($variable->getRangeMin())) ? $variable->getRangeMin() : 0.0),
-				((strlen($variable->getRangeMax())) ? $variable->getRangeMax() : 0.0),
-				(is_object($variable->getUnit()) ? $variable->getUnit()->getId() : NULL),
-				$variable->getPrecision(),
-				$variable->getIntprecision()
-			);
-			$affectedRows = $ilDB->execute($statement, $data);
 		}
 		// save results
-		$statement = $ilDB->prepareManip("DELETE FROM il_qpl_qst_formulaquestion_result WHERE question_fi = ?", 
-			array("integer")
+		$affectedRows = $ilDB->manipulateF("DELETE FROM il_qpl_qst_fq_res WHERE question_fi = %s", 
+			array("integer"),
+			array($this->getId())
 		);
-		$data = array($this->getId());
-		$affectedRows = $ilDB->execute($statement, $data);
 		foreach ($this->results as $result)
 		{ 
-			$statement = $ilDB->prepareManip("INSERT INTO il_qpl_qst_formulaquestion_result (result_id, question_fi, result, range_min, range_max, tolerance, unit_fi, formula, `precision`, rating_simple, rating_sign, rating_value, rating_unit, points) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
-				array("integer", "text", "float", "float", "float", "integer", "text", "integer", "integer", "float", "float", "float", "float")
-			);
-			$data = array(
-				$this->getId(),
-				$result->getResult(),
-				((strlen($result->getRangeMin())) ? $result->getRangeMin() : NULL),
-				((strlen($result->getRangeMax())) ? $result->getRangeMax() : NULL),
-				((strlen($result->getTolerance())) ? $result->getTolerance() : NULL),
-				is_object($result->getUnit()) ? $result->getUnit()->getId() : NULL,
-				$result->getFormula(),
-				$result->getPrecision(),
-				($result->getRatingSimple()) ? 1 : 0,
-				($result->getRatingSimple()) ? 25 : $result->getRatingSign(),
-				($result->getRatingSimple()) ? 25 : $result->getRatingValue(),
-				($result->getRatingSimple()) ? 25 : $result->getRatingUnit(),
-				$result->getPoints()
-			);
-			$affectedRows = $ilDB->execute($statement, $data);
+			$next_id = $ilDB->nextId('il_qpl_qst_fq_res');
+			$affectedRows = $ilDB->insert("il_qpl_qst_fq_res", array(
+				"result_id" => array("integer", $next_id),
+				"question_fi" => array("integer", $this->getId()),
+				"result" => array("text", $result->getResult()),
+				"range_min" => array("float", ((strlen($result->getRangeMin())) ? $result->getRangeMin() : NULL)),
+				"range_max" => array("float", ((strlen($result->getRangeMax())) ? $result->getRangeMax() : NULL)),
+				"tolerance" => array("float", ((strlen($result->getTolerance())) ? $result->getTolerance() : NULL)),
+				"unit_fi" => array("integer", is_object($result->getUnit()) ? $result->getUnit()->getId() : NULL),
+				"formula" => array("clob", $result->getFormula()),
+				"resprecision" => array("integer", $result->getPrecision()),
+				"rating_simple" => array("integer", ($result->getRatingSimple()) ? 1 : 0),
+				"rating_sign" => array("float", ($result->getRatingSimple()) ? 25 : $result->getRatingSign()),
+				"rating_value" => array("float", ($result->getRatingSimple()) ? 25 : $result->getRatingValue()),
+				"rating_unit" => array("float", ($result->getRatingSimple()) ? 25 : $result->getRatingUnit()),
+				"points" => array("float", $result->getPoints())
+			));
 		}
 		// save result units
-		$statement = $ilDB->prepareManip("DELETE FROM il_qpl_qst_formulaquestion_result_unit WHERE question_fi = ?", 
-			array("integer")
+		$affectedRows = $ilDB->manipulateF("DELETE FROM il_qpl_qst_fq_res_unit WHERE question_fi = %s", 
+			array("integer"),
+			array($this->getId())
 		);
-		$data = array($this->getId());
-		$affectedRows = $ilDB->execute($statement, $data);
 		foreach ($this->results as $result)
 		{
 			foreach ($this->getResultUnits($result) as $unit)
 			{
-				$statement = $ilDB->prepareManip("INSERT INTO il_qpl_qst_formulaquestion_result_unit (result_unit_id, question_fi, result, unit_fi) VALUES (NULL, ?, ?, ?)", 
-					array("integer", "text", "integer")
+				$next_id = $ilDB->nextId('il_qpl_qst_fq_res_unit');
+				$affectedRows = $ilDB->manipulateF("INSERT INTO il_qpl_qst_fq_res_unit (result_unit_id, question_fi, result, unit_fi) VALUES (%s, %s, %s, %s)", 
+					array('integer','integer','text','integer'),
+					array(
+						$next_id,
+						$this->getId(),
+						$result->getResult(),
+						$unit->getId()
+					)
 				);
-				$data = array(
-					$this->getId(),
-					$result->getResult(),
-					$unit->getId()
-				);
-				$affectedRows = $ilDB->execute($statement, $data);
 			}
 		}
 		parent::saveToDb();
@@ -953,26 +913,22 @@ class assFormulaQuestion extends assQuestion
 	/**
 	* Loads a assFormulaQuestion object from a database
 	*
-	* Loads a assFormulaQuestion object from a database
-	*
-	* @param object $db A pear DB object
-	* @param integer $question_id A unique key which defines the multiple choice test in the database
-	* @access public
+	* @param integer $question_id A unique key which defines the question in the database
 	*/
-	function loadFromDb($question_id)
+	public function loadFromDb($question_id)
 	{
 		global $ilDB;
 
-		$statement = $ilDB->prepare("SELECT qpl_questions.* FROM qpl_questions WHERE question_id = ?",
-			array("integer")
+		$result = $ilDB->queryF("SELECT qpl_questions.* FROM qpl_questions WHERE question_id = %s",
+			array('integer'),
+			array($question_id)
 		);
-		$result = $ilDB->execute($statement, array($question_id));
 		if ($result->numRows() == 1)
 		{
 			$data = $ilDB->fetchAssoc($result);
 			$this->setId($question_id);
 			$this->setTitle($data["title"]);
-			$this->setComment($data["comment"]);
+			$this->setComment($data["description"]);
 			$this->setSuggestedSolution($data["solution_hint"]);
 			$this->setOriginalId($data["original_id"]);
 			$this->setObjId($data["obj_fi"]);
@@ -984,39 +940,39 @@ class assFormulaQuestion extends assQuestion
 			$this->setEstimatedWorkingTime(substr($data["working_time"], 0, 2), substr($data["working_time"], 3, 2), substr($data["working_time"], 6, 2));
 
 			// load variables
-			$statement = $ilDB->prepare("SELECT * FROM il_qpl_qst_formulaquestion_variable WHERE question_fi = ?",
-				array("integer")
+			$result = $ilDB->queryF("SELECT * FROM il_qpl_qst_fq_var WHERE question_fi = %s",
+				array('integer'),
+				array($question_id)
 			);
-			$result = $ilDB->execute($statement, array($question_id));
 			if ($result->numRows() > 0)
 			{
 				$this->getPlugin()->includeClass("class.assFormulaQuestionVariable.php");
 				while ($data = $ilDB->fetchAssoc($result))
 				{
-					$varObj = new assFormulaQuestionVariable($data["variable"], $data["range_min"], $data["range_max"], $this->getUnit($data["unit_fi"]), $data["precision"], $data["intprecision"]);
+					$varObj = new assFormulaQuestionVariable($data["variable"], $data["range_min"], $data["range_max"], $this->getUnit($data["unit_fi"]), $data["varprecision"], $data["intprecision"]);
 					$this->addVariable($varObj);
 				}
 			}
 			// load results
-			$statement = $ilDB->prepare("SELECT * FROM il_qpl_qst_formulaquestion_result WHERE question_fi = ?",
-				array("integer")
+			$result = $ilDB->queryF("SELECT * FROM il_qpl_qst_fq_res WHERE question_fi = %s",
+				array('integer'),
+				array($question_id)
 			);
-			$result = $ilDB->execute($statement, array($question_id));
 			if ($result->numRows() > 0)
 			{
 				$this->getPlugin()->includeClass("class.assFormulaQuestionResult.php");
 				while ($data = $ilDB->fetchAssoc($result))
 				{
-					$resObj = new assFormulaQuestionResult($data["result"], $data["range_min"], $data["range_max"], $data["tolerance"], $this->getUnit($data["unit_fi"]), $data["formula"], $data["points"], $data["precision"], $data["rating_simple"], $data["rating_sign"], $data["rating_value"], $data["rating_unit"]);
+					$resObj = new assFormulaQuestionResult($data["result"], $data["range_min"], $data["range_max"], $data["tolerance"], $this->getUnit($data["unit_fi"]), $data["formula"], $data["points"], $data["resprecision"], $data["rating_simple"], $data["rating_sign"], $data["rating_value"], $data["rating_unit"]);
 					$this->addResult($resObj);
 				}
 			}
 
 			// load result units
-			$statement = $ilDB->prepare("SELECT * FROM il_qpl_qst_formulaquestion_result_unit WHERE question_fi = ?",
-				array("integer")
+			$result = $ilDB->queryF("SELECT * FROM il_qpl_qst_fq_res_unit WHERE question_fi = %s",
+				array('integer'),
+				array($question_id)
 			);
-			$result = $ilDB->execute($statement, array($question_id));
 			if ($result->numRows() > 0)
 			{
 				while ($data = $ilDB->fetchAssoc($result))
@@ -1031,8 +987,6 @@ class assFormulaQuestion extends assQuestion
 	}
 	
 	/**
-	* Duplicates an assFormulaQuestion
-	*
 	* Duplicates an assFormulaQuestion
 	*
 	* @access public
@@ -1086,8 +1040,6 @@ class assFormulaQuestion extends assQuestion
 	/**
 	* Copies an assFormulaQuestion object
 	*
-	* Copies an assFormulaQuestion object
-	*
 	* @access public
 	*/
 	function copyObject($target_questionpool, $title = "")
@@ -1121,42 +1073,11 @@ class assFormulaQuestion extends assQuestion
 	}
 
 	/**
-	* Gets the single choice output type
-	*
-	* Gets the single choice output type which is either OUTPUT_ORDER (=0) or OUTPUT_RANDOM (=1).
-	*
-	* @return integer The output type of the assFormulaQuestion object
-	* @access public
-	* @see $output_type
-	*/
-	function getOutputType()
-	{
-		return $this->output_type;
-	}
-
-	/**
-	* Sets the single choice output type
-	*
-	* Sets the output type of the assFormulaQuestion object
-	*
-	* @param integer $output_type A nonnegative integer value specifying the output type. It is OUTPUT_ORDER (=0) or OUTPUT_RANDOM (=1).
-	* @access public
-	* @see $response
-	*/
-	function setOutputType($output_type = OUTPUT_ORDER)
-	{
-		$this->output_type = $output_type;
-	}
-
-	/**
 	* Returns the maximum points, a learner can reach answering the question
 	*
-	* Returns the maximum points, a learner can reach answering the question
-	*
-	* @access public
 	* @see $points
 	*/
-	function getMaximumPoints()
+	public function getMaximumPoints()
 	{
 		$points = 0;
 		foreach ($this->results as $result) 
@@ -1167,8 +1088,6 @@ class assFormulaQuestion extends assQuestion
 	}
 
 	/**
-	* Returns the points, a learner has reached answering the question
-	*
 	* Returns the points, a learner has reached answering the question
 	* The points are calculated from the given answers including checks
 	* for all special scoring options in the test container.
@@ -1219,8 +1138,6 @@ class assFormulaQuestion extends assQuestion
 	/**
 	* Saves the learners input of the question to the database
 	*
-	* Saves the learners input of the question to the database
-	*
 	* @param integer $test_id The database id of the test containing this question
   * @return boolean Indicates the save status (true if saved successful, false otherwise)
 	* @access public
@@ -1242,32 +1159,61 @@ class assFormulaQuestion extends assQuestion
 			if (preg_match("/^result_(\\\$r\\d+)$/", $key, $matches))
 			{
 				if (strlen($value)) $entered_values = TRUE;
-				$statement = $ilDB->prepareManip("DELETE FROM tst_solutions WHERE active_fi = ? AND pass = ? AND question_fi = ? AND value1 = ?", 
-					array("integer", "integer", "integer", "text")
+				$result = $ilDB->queryF("SELECT solution_id FROM tst_solutions WHERE active_fi = %s AND pass = %s AND question_fi = %s  AND " . $ilDB->like('value1', 'clob', $matches[1]),
+					array('integer','integer','integer'),
+					array($active_id, $pass, $this->getId())
 				);
-				$data = array($active_id, $pass, $this->getId(), $matches[1]);
-				$affectedRows = $ilDB->execute($statement, $data);
+				if ($result->numRows())
+				{
+					while ($row = $ilDB->fetchAssoc($result))
+					{
+						$affectedRows = $ilDB->manipulateF("DELETE FROM tst_solutions WHERE solution_id = %s",
+							array('integer'),
+							array($row['solution_id'])
+						);
+					}
+				}
 
-				$statement = $ilDB->prepareManip("INSERT INTO tst_solutions (active_fi, pass, question_fi, value1, value2) VALUES (?, ?, ?, ?, ?)", 
-					array("integer", "integer", "integer", "text", "text")
-				);
-				$data = array($active_id, $pass, $this->getId(), $matches[1], str_replace(",", ".", $value));
-				$affectedRows = $ilDB->execute($statement, $data);
+				$next_id = $ilDB->nextId('tst_solutions');
+				$affectedRows = $ilDB->insert("tst_solutions", array(
+					"solution_id" => array("integer", $next_id),
+					"active_fi" => array("integer", $active_id),
+					"question_fi" => array("integer", $this->getId()),
+					"value1" => array("clob", $matches[1]),
+					"value2" => array("clob", str_replace(",", ".", $value)),
+					"pass" => array("integer", $pass),
+					"tstamp" => array("integer", time())
+				));
 			}
 			else if (preg_match("/^result_(\\\$r\\d+)_unit$/", $key, $matches))
 			{
 				if ($value > -1) $entered_values = TRUE;
-				$statement = $ilDB->prepareManip("DELETE FROM tst_solutions WHERE active_fi = ? AND pass = ? AND question_fi = ? AND value1 = ?", 
-					array("integer", "integer", "integer", "text")
-				);
-				$data = array($active_id, $pass, $this->getId(), $matches[1] . "_unit");
-				$affectedRows = $ilDB->execute($statement, $data);
 
-				$statement = $ilDB->prepareManip("INSERT INTO tst_solutions (active_fi, pass, question_fi, value1, value2) VALUES (?, ?, ?, ?, ?)", 
-					array("integer", "integer", "integer", "text", "text")
+				$result = $ilDB->queryF("SELECT solution_id FROM tst_solutions WHERE active_fi = %s AND pass = %s AND question_fi = %s AND " . $ilDB->like('value1', 'clob', $matches[1] . "_unit"),
+					array('integer','integer','integer'),
+					array($active_id, $pass, $this->getId())
 				);
-				$data = array($active_id, $pass, $this->getId(), $matches[1] . "_unit", $value);
-				$affectedRows = $ilDB->execute($statement, $data);
+				if ($result->numRows())
+				{
+					while ($row = $ilDB->fetchAssoc($result))
+					{
+						$affectedRows = $ilDB->manipulateF("DELETE FROM tst_solutions WHERE solution_id = %s",
+							array('integer'),
+							array($row['solution_id'])
+						);
+					}
+				}
+
+				$next_id = $ilDB->nextId('tst_solutions');
+				$affectedRows = $ilDB->insert("tst_solutions", array(
+					"solution_id" => array("integer", $next_id),
+					"active_fi" => array("integer", $active_id),
+					"question_fi" => array("integer", $this->getId()),
+					"value1" => array("clob", $matches[1] . "_unit"),
+					"value2" => array("clob", $value),
+					"pass" => array("integer", $pass),
+					"tstamp" => array("integer", time())
+				));
 			}
 		}
 		if ($entered_values)
@@ -1293,12 +1239,9 @@ class assFormulaQuestion extends assQuestion
 	/**
 	* Returns the question type of the question
 	*
-	* Returns the question type of the question
-	*
-	* @return integer The question type of the question
-	* @access public
+	* @return string The question type of the question
 	*/
-	function getQuestionType()
+	public function getQuestionType()
 	{
 		return "assFormulaQuestion";
 	}
@@ -1306,12 +1249,9 @@ class assFormulaQuestion extends assQuestion
 	/**
 	* Returns the name of the additional question data table in the database
 	*
-	* Returns the name of the additional question data table in the database
-	*
 	* @return string The additional table name
-	* @access public
 	*/
-	function getAdditionalTableName()
+	public function getAdditionalTableName()
 	{
 		return "";
 	}
@@ -1319,12 +1259,9 @@ class assFormulaQuestion extends assQuestion
 	/**
 	* Returns the name of the answer table in the database
 	*
-	* Returns the name of the answer table in the database
-	*
 	* @return string The answer table name
-	* @access public
 	*/
-	function getAnswerTableName()
+	public function getAnswerTableName()
 	{
 		return "";
 	}
@@ -1339,23 +1276,20 @@ class assFormulaQuestion extends assQuestion
 	{
 		global $ilDB;
 
-		$statement = $ilDB->prepareManip("DELETE FROM il_qpl_qst_formulaquestion_variable WHERE question_fi = ?", 
-			array("integer")
+		$affectedRows = $ilDB->manipulateF("DELETE FROM il_qpl_qst_fq_var WHERE question_fi = %s",
+			array('integer'),
+			array($question_id)
 		);
-		$data = array($question_id);
-		$affectedRows = $ilDB->execute($statement, $data);
 
-		$statement = $ilDB->prepareManip("DELETE FROM il_qpl_qst_formulaquestion_result WHERE question_fi = ?", 
-			array("integer")
+		$affectedRows = $ilDB->manipulateF("DELETE FROM il_qpl_qst_fq_res WHERE question_fi = %s",
+			array('integer'),
+			array($question_id)
 		);
-		$data = array($question_id);
-		$affectedRows = $ilDB->execute($statement, $data);
 
-		$statement = $ilDB->prepareManip("DELETE FROM il_qpl_qst_formulaquestion_result_unit WHERE question_fi = ?", 
-			array("integer")
+		$affectedRows = $ilDB->manipulateF("DELETE FROM il_qpl_qst_fq_res_unit WHERE question_fi = %s",
+			array('integer'),
+			array($question_id)
 		);
-		$data = array($question_id);
-		$affectedRows = $ilDB->execute($statement, $data);
 	}
 
 	/**
@@ -1480,6 +1414,22 @@ class assFormulaQuestion extends assQuestion
 			}
 		}
 		return $user_solution;
+	}
+
+	/**
+	* Object getter
+	*/
+	public function __get($value)
+	{
+		switch ($value)
+		{
+			case "resultunits":
+				return $this->resultunits;
+				break;
+			default:
+				return parent::__get($value);
+				break;
+		}
 	}
 }
 

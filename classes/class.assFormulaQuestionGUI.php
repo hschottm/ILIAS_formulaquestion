@@ -31,7 +31,7 @@ include_once "./Modules/Test/classes/inc.AssessmentConstants.php";
 * for single choice questions.
 *
 * @author		Helmut Schottmüller <helmut.schottmueller@mac.com>
-* @version	$Id: class.assFormulaQuestionGUI.php 944 2009-11-09 16:11:30Z hschottm $
+* @version	$Id: class.assFormulaQuestionGUI.php 1235 2010-02-15 15:21:18Z hschottm $
 * @ingroup ModulesTestQuestionPool
 * @ilctrl_iscalledby assFormulaQuestionGUI: ilObjQuestionPoolGUI
 * */
@@ -44,14 +44,12 @@ class assFormulaQuestionGUI extends assQuestionGUI
 	*
 	* The constructor takes possible arguments an creates an instance of the assFormulaQuestionGUI object.
 	*
-	* @param integer $id The database id of a single choice question object
+	* @param integer $id The database id of a multiple choice question object
 	* @access public
 	*/
-	function assFormulaQuestionGUI(
-			$id = -1
-	)
+	function __construct($id = -1)
 	{
-		$this->assQuestionGUI();
+		parent::__construct();
 		include_once "./Services/Component/classes/class.ilPlugin.php";
 		$pl = ilPlugin::getPluginObject(IL_COMP_MODULE, "TestQuestionPool", "qst", "assFormulaQuestion");
 		$pl->includeClass("class.assFormulaQuestion.php");
@@ -87,257 +85,162 @@ class assFormulaQuestionGUI extends assQuestionGUI
 	}
 
 	/**
-	* Creates an output of the edit form for the question
+	* Evaluates a posted edit form and writes the form data in the question object
 	*
+	* @return integer A positive value, if one of the required fields wasn't set, else 0
+	*/
+	function writePostData($always = false)
+	{
+		$hasErrors = (!$always) ? $this->editQuestion(true) : false;
+		if (!$hasErrors)
+		{
+			$this->object->setTitle($_POST["title"]);
+			$this->object->setAuthor($_POST["author"]);
+			$this->object->setComment($_POST["comment"]);
+			include_once "./Services/AdvancedEditing/classes/class.ilObjAdvancedEditing.php";
+			$questiontext = $_POST["question"];
+			$this->object->setQuestion($questiontext);
+			$this->object->setEstimatedWorkingTime(
+				$_POST["Estimated"]["hh"],
+				$_POST["Estimated"]["mm"],
+				$_POST["Estimated"]["ss"]
+			);
+
+			$this->object->parseQuestionText();
+			$found_vars = array();
+			$found_results = array();
+			foreach ($_POST as $key => $value)
+			{
+				if (preg_match("/^unit_(\\\$v\d+)$/", $key, $matches))
+				{
+					array_push($found_vars, $matches[1]);
+				}
+				if (preg_match("/^unit_(\\\$r\d+)$/", $key, $matches))
+				{
+					array_push($found_results, $matches[1]);
+				}
+			}
+
+			if (!$this->object->checkForDuplicateVariables())
+			{
+				$this->addErrorMessage($this->object->getPlugin()->txt("err_duplicate_variables"));
+				$checked = FALSE;
+			}
+			if (!$this->object->checkForDuplicateResults())
+			{
+				$this->addErrorMessage($this->object->getPlugin()->txt("err_duplicate_results"));
+				$checked = FALSE;
+			}
+
+			foreach ($found_vars as $variable)
+			{
+				if ($this->object->getVariable($variable) != null)
+				{
+					$this->object->getPlugin()->includeClass("class.assFormulaQuestionVariable.php");
+					$varObj = new assFormulaQuestionVariable($variable, $_POST["range_min_$variable"], $_POST["range_max_$variable"], $this->object->getUnit($_POST["unit_$variable"]), $_POST["precision_$variable"], $_POST["intprecision_$variable"]);
+					$this->object->addVariable($varObj);
+				}
+			}
+			foreach ($found_results as $result)
+			{
+				if ($this->object->getResult($result) != null)
+				{
+					$use_simple_rating = ($_POST["rating_simple_$result"] == 1) ? TRUE : FALSE;
+					$this->object->getPlugin()->includeClass("class.assFormulaQuestionResult.php");
+					$resObj = new assFormulaQuestionResult(
+						$result, 
+						$_POST["range_min_$result"], 
+						$_POST["range_max_$result"], 
+						$_POST["tolerance_$result"], 
+						$this->object->getUnit($_POST["unit_$result"]), 
+						$_POST["formula_$result"], 
+						$_POST["points_$result"], 
+						$_POST["precision_$result"], 
+						$use_simple_rating, 
+						($_POST["rating_simple_$result"] != 1) ? $_POST["rating_sign_$result"] : "",
+						($_POST["rating_simple_$result"] != 1) ? $_POST["rating_value_$result"] : "",
+						($_POST["rating_simple_$result"] != 1) ? $_POST["rating_unit_$result"] : ""
+					);
+					$this->object->addResult($resObj);
+					$this->object->addResultUnits($resObj, $_POST["units_$result"]);
+					$advanced_rating = $this->object->canUseAdvancedRating($resObj);
+				}
+			}
+
+			return 0;
+		}
+		else
+		{
+			return 1;
+		}
+	}
+
+	/**
 	* Creates an output of the edit form for the question
 	*
 	* @access public
 	*/
 	function editQuestion()
 	{
-		$this->tpl->addJavascript("./Services/JavaScript/js/Basic.js");
-		$javascript = "<script type=\"text/javascript\">ilAddOnLoad(initialSelect);\n".
-			"function initialSelect() {\n%s\n}</script>";
+		$save = ((strcmp($this->ctrl->getCmd(), "save") == 0) || (strcmp($this->ctrl->getCmd(), "saveEdit") == 0)) ? TRUE : FALSE;
 		$this->getQuestionTemplate();
-		
-		$pl = ilPlugin::getPluginObject(IL_COMP_MODULE, "TestQuestionPool", "qst", "assFormulaQuestion");
-		$tpl_qd = $pl->getTemplate("tpl.il_as_qpl_formulaquestion.html");
 
-		$this->object->getPlugin()->includeClass("class.GUIPopUpButton.php");
-		$allUnits = new GUIPopUpButton();
-		$allUnits->setList($this->object->getCategorizedUnits());
-		$allUnits->setDisplayString("displayString");
-		$allUnits->setValue("id");
-		$allUnits->setListItemClassPath("class");
+		include_once("./Services/Form/classes/class.ilPropertyFormGUI.php");
+		$form = new ilPropertyFormGUI();
+		$form->setFormAction($this->ctrl->getFormAction($this));
+		$form->setTitle($this->outQuestionType());
+		$form->setMultipart(FALSE);
+		$form->setTableWidth("100%");
+		$form->setId("assformulaquestion");
+
+		// title, author, description, question, working time (assessment mode)
+		$this->addBasicQuestionFormProperties($form);
 
 		if (count($this->object->getVariables()))
 		{
-			foreach ($this->object->getVariables() as $variable)
-			{
-				$tpl_qd->setCurrentBlock("variable");
-				$allUnits->setMultiple(null);
-				$allUnits->setNoSelection($this->object->getPlugin()->txt("no_selection"));
-				$allUnits->setSize("1");
-				$allUnits->setStyle(null);
-				$allUnits->setName("unit_" . $variable->getVariable());
-				$allUnits->setId("unit_" . $variable->getVariable());
-				if (is_object($variable->getUnit()))
-				{
-					$allUnits->setSelectedValue($variable->getUnit()->getId());
-				}
-				else
-				{
-					$allUnits->setSelectedValue(NULL);
-				}
-				$tpl_qd->setVariable("VARIABLE_UNIT", $allUnits->getHTML());
-				$tpl_qd->setVariable("TEXT_VARIABLE", $variable->getVariable());
-				$tpl_qd->setVariable("TEXT_SELECT_UNIT", $this->object->getPlugin()->txt("select_unit"));
-				if (strlen($variable->getRangeMin())) $tpl_qd->setVariable("VALUE_RANGE_MIN", ' value="' . ilUtil::prepareFormOutput($variable->getRangeMin()) . '"');
-				if (strlen($variable->getRangeMax())) $tpl_qd->setVariable("VALUE_RANGE_MAX", ' value="' . ilUtil::prepareFormOutput($variable->getRangeMax()) . '"');
-				if (strlen($variable->getPrecision())) $tpl_qd->setVariable("VALUE_PRECISION", ' value="' . ilUtil::prepareFormOutput($variable->getPrecision()) . '"');
-				if (strlen($variable->getIntprecision())) $tpl_qd->setVariable("VALUE_INTPRECISION", ' value="' . ilUtil::prepareFormOutput($variable->getIntprecision()) . '"');
-				$tpl_qd->parseCurrentBlock();
-			}
-			$tpl_qd->setCurrentBlock("variables");
-			$tpl_qd->setVariable("TEXT_VARIABLES", $this->object->getPlugin()->txt("variables"));
-			$tpl_qd->setVariable("TEXT_RANGE_MIN", $this->object->getPlugin()->txt("range_min"));
-			$tpl_qd->setVariable("TEXT_RANGE_MAX", $this->object->getPlugin()->txt("range_max"));
-			$tpl_qd->setVariable("TEXT_UNIT", $this->object->getPlugin()->txt("unit"));
-			$tpl_qd->setVariable("TEXT_PRECISION", $this->object->getPlugin()->txt("precision"));
-			$tpl_qd->setVariable("TEXT_INTPRECISION", $this->object->getPlugin()->txt("intprecision"));
-			$tpl_qd->parseCurrentBlock();
+			$this->object->getPlugin()->includeClass("class.ilVariableInputGUI.php");
+			$variables = new ilVariableInputGUI($this->object->getPlugin()->txt("variables"));
+			$variables->setVariables($this->object->getVariables());
+			$variables->setCategorizedUnits($this->object->getCategorizedUnits());
+			$form->addItem($variables);
 		}
-
 		if (count($this->object->getResults()))
 		{
-			foreach ($this->object->getResults() as $result)
+			$this->object->getPlugin()->includeClass("class.ilResultInputGUI.php");
+			$results = new ilResultInputGUI($this->object->getPlugin()->txt("results"));
+			$results->setResults($this->object->getResults());
+			$results->setVariables($this->object->getVariables());
+			$results->setResultUnits($this->object->resultunits);
+			$results->setCategorizedUnits($this->object->getCategorizedUnits());
+			if (preg_match("/suggestrange_(.*)/", $this->ctrl->getCmd(), $matches))
 			{
-				$tpl_qd->setCurrentBlock("initrating");
-				$advanced_rating = $this->object->canUseAdvancedRating($result);
-				$tpl_qd->setVariable("RESULT", $result->getResult());
-				$tpl_qd->setVariable("VISIBILITY", ($result->getRatingSimple() || !$advanced_rating) ? "hidden" : "visible");
-				$tpl_qd->parseCurrentBlock();
+				$results->suggestRange($matches[1]);
 			}
-			foreach ($this->object->getResults() as $result)
-			{
-				$tpl_qd->setCurrentBlock("result_header");
-				$tpl_qd->setVariable("TEXT_RANGE_MIN", $this->object->getPlugin()->txt("range_min"));
-				$tpl_qd->setVariable("TEXT_RANGE_MAX", $this->object->getPlugin()->txt("range_max"));
-				$tpl_qd->setVariable("TEXT_UNIT", $this->object->getPlugin()->txt("unit"));
-				$tpl_qd->setVariable("TEXT_TOLERANCE", $this->object->getPlugin()->txt("tolerance"));
-				$tpl_qd->setVariable("TEXT_PRECISION", $this->object->getPlugin()->txt("precision"));
-				$tpl_qd->setVariable("TEXT_POINTS", $this->object->getPlugin()->txt("points"));
-				$tpl_qd->parseCurrentBlock();
-
-				$selectedvalues = array();
-				foreach ($this->object->getUnits() as $unit)
-				{
-					if ($this->object->hasResultUnit($result, $unit->getId()))
-					{
-						array_push($selectedvalues, $unit->getId());
-					}
-				}
-				$advanced_rating = $this->object->canUseAdvancedRating($result);
-				if (!$advanced_rating)
-				{
-					$tpl_qd->setCurrentBlock("force_simple_rating");
-					$tpl_qd->setVariable("TEXT_RESULT", $result->getResult());
-					$tpl_qd->parseCurrentBlock();
-				}
-				$tpl_qd->setCurrentBlock("result");
-				
-				$allUnits->setMultiple(null);
-				$allUnits->setSize("1");
-				$allUnits->setStyle(null);
-				$allUnits->setNoSelection($this->object->getPlugin()->txt("no_selection"));
-				$allUnits->setName("unit_" . $result->getResult());
-				$allUnits->setId("unit_" . $result->getResult());
-				if (is_object($result->getUnit()))
-				{
-					$allUnits->setSelectedValue($result->getUnit()->getId());
-				}
-				else
-				{
-					$allUnits->setSelectedValue(NULL);
-				}
-				$tpl_qd->setVariable("RESULT_UNIT", $allUnits->getHTML());
-				
-				$allUnits->setMultiple("multiple");
-				$allUnits->setSize("10");
-				$allUnits->setNoSelection(null);
-				$allUnits->setStyle("width: 300px;");
-				$allUnits->setName("units_" . $result->getResult() . "[]");
-				$allUnits->setId("units_" . $result->getResult());
-				$allUnits->setSelectedValue($selectedvalues);
-				$tpl_qd->setVariable("POPUP_AVAILABLE_UNITS", $allUnits->getHTML());
-				$tpl_qd->setVariable("TEXT_RESULT", $result->getResult());
-				$tpl_qd->setVariable("TEXT_SUGGEST_RANGE", $this->object->getPlugin()->txt("suggest_range"));
-				$tpl_qd->setVariable("TEXT_SELECT_UNIT", $this->object->getPlugin()->txt("select_unit"));
-				if (strlen($result->getTolerance())) $tpl_qd->setVariable("VALUE_TOLERANCE", ' value="' . ilUtil::prepareFormOutput($result->getTolerance()) . '"');
-				if (strlen($result->getRatingSign())) $tpl_qd->setVariable("VALUE_RATING_SIGN", ' value="' . ilUtil::prepareFormOutput($result->getRatingSign()) . '"');
-				if (strlen($result->getRatingValue())) $tpl_qd->setVariable("VALUE_RATING_VALUE", ' value="' . ilUtil::prepareFormOutput($result->getRatingValue()) . '"');
-				if (strlen($result->getRatingUnit())) $tpl_qd->setVariable("VALUE_RATING_UNIT", ' value="' . ilUtil::prepareFormOutput($result->getRatingUnit()) . '"');
-				if (strlen($result->getPoints())) $tpl_qd->setVariable("VALUE_POINTS", ' value="' . ilUtil::prepareFormOutput($result->getPoints()) . '"');
-				if (strlen($result->getPrecision())) $tpl_qd->setVariable("VALUE_PRECISION", ' value="' . ilUtil::prepareFormOutput($result->getPrecision()) . '"');
-				$tpl_qd->setVariable("TEXT_FORMULA", $this->object->getPlugin()->txt("formula"));
-				if (strlen($result->getFormula()))
-				{
-					$tpl_qd->setVariable("VALUE_FORMULA", ' value="' . ilUtil::prepareFormOutput($result->getFormula()) . '"');
-				}
-				$tpl_qd->setVariable("TEXT_RATING_SIMPLE", $this->object->getPlugin()->txt("rating_simple"));
-				if (!$advanced_rating)
-				{
-					$tpl_qd->setVariable("CHECKED_RATING_SIMPLE", ' checked="checked"');
-					$tpl_qd->setVariable("DISABLED_RATING_SIMPLE", ' disabled="disabled"');
-				}
-				else
-				{
-					if ($result->getRatingSimple())
-					{
-						$tpl_qd->setVariable("CHECKED_RATING_SIMPLE", ' checked="checked"');
-					}
-				}
-				$tpl_qd->setVariable("TEXT_AVAILABLE_RESULT_UNITS", $this->object->getPlugin()->txt("result_units"));
-				$tpl_qd->setVariable("TEXT_RATING_SIGN", $this->object->getPlugin()->txt("rating_sign"));
-				$tpl_qd->setVariable("TEXT_RATING_VALUE", $this->object->getPlugin()->txt("rating_value"));
-				$tpl_qd->setVariable("TEXT_RATING_UNIT", $this->object->getPlugin()->txt("rating_unit"));
-				
-				if (strcmp($this->ctrl->getCmd(), "suggestrange_" . $result->getResult()) == 0)
-				{
-					// suggest a range for the result
-					if (strlen($result->substituteFormula($this->object->getVariables(), $this->object->getResults())))
-					{
-						$result->suggestRange($this->object->getVariables(), $this->object->getResults());
-					}
-				}
-				if (strlen(trim($result->getRangeMin()))) $tpl_qd->setVariable("VALUE_RANGE_MIN", ' value="' . ilUtil::prepareFormOutput($result->getRangeMin()) . '"');
-				if (strlen(trim($result->getRangeMax()))) $tpl_qd->setVariable("VALUE_RANGE_MAX", ' value="' . ilUtil::prepareFormOutput($result->getRangeMax()) . '"');
-
-				$tpl_qd->parseCurrentBlock();
-			}
-			$tpl_qd->setCurrentBlock("results");
-			$tpl_qd->setVariable("TEXT_RESULTS", $this->object->getPlugin()->txt("results"));
-			$tpl_qd->parseCurrentBlock();
+			$form->addItem($results);
 		}
 
-		$internallinks = array(
-			"lm" => $this->lng->txt("obj_lm"),
-			"st" => $this->lng->txt("obj_st"),
-			"pg" => $this->lng->txt("obj_pg"),
-			"glo" => $this->lng->txt("glossary_term")
-		);
-		foreach ($internallinks as $key => $value)
+		if ($this->object->getId())
 		{
-			$tpl_qd->setCurrentBlock("internallink");
-			$tpl_qd->setVariable("TYPE_INTERNAL_LINK", $key);
-			$tpl_qd->setVariable("TEXT_INTERNAL_LINK", $value);
-			$tpl_qd->parseCurrentBlock();
+			$hidden = new ilHiddenInputGUI("", "ID");
+			$hidden->setValue($this->object->getId());
+			$form->addItem($hidden);
 		}
-		
-		if (count($this->object->suggested_solutions))
+
+		$form->addCommandButton('parseQuestion', $this->object->getPlugin()->txt("parseQuestion"));
+		$this->addQuestionFormCommandButtons($form);
+	
+		$errors = false;
+	
+		if ($save)
 		{
-			$tpl_qd->setCurrentBlock("remove_solution");
-			$tpl_qd->setVariable("BUTTON_REMOVE_SOLUTION", $this->lng->txt("remove"));
-			$tpl_qd->parseCurrentBlock();
-
-			$solution_array = $this->object->getSuggestedSolution(0);
-			include_once "./Modules/TestQuestionPool/classes/class.assQuestion.php";
-			$href = assQuestion::_getInternalLinkHref($solution_array["internal_link"]);
-			$tpl_qd->setVariable("VALUE_SOLUTION_HINT", $solution_array["internal_link"]);
-			$tpl_qd->setVariable("TEXT_VALUE_SOLUTION_HINT", " <a href=\"$href\" target=\"content\">" . $this->lng->txt("solution_hint"). "</a> ");
-			$tpl_qd->setVariable("BUTTON_ADD_SOLUTION", $this->lng->txt("change"));
-		}
-		else
-		{
-			$tpl_qd->setVariable("BUTTON_ADD_SOLUTION", $this->lng->txt("add"));
+			$form->setValuesByPost();
+			$errors = !$form->checkInput();
+			$form->setValuesByPost(); // again, because checkInput now performs the whole stripSlashes handling and we need this if we don't want to have duplication of backslashes
+			if ($errors) $checkonly = false;
 		}
 
-		$tpl_qd->setVariable("QUESTION_ID", $this->object->getId());
-		$tpl_qd->setVariable("TEXT_TITLE", $this->lng->txt("title"));
-		$tpl_qd->setVariable("VALUE_TITLE", ilUtil::prepareFormOutput($this->object->getTitle()));
-		$tpl_qd->setVariable("TEXT_COMMENT", $this->lng->txt("description"));
-		$tpl_qd->setVariable("VALUE_COMMENT", ilUtil::prepareFormOutput($this->object->getComment()));
-		$tpl_qd->setVariable("TEXT_AUTHOR", $this->lng->txt("author"));
-		$tpl_qd->setVariable("VALUE_AUTHOR", ilUtil::prepareFormOutput($this->object->getAuthor()));
-		$tpl_qd->setVariable("TEXT_QUESTION", $this->lng->txt("question"));
-		$questiontext = $this->object->getQuestion();
-		$tpl_qd->setVariable("VALUE_QUESTION", ilUtil::prepareFormOutput($this->object->prepareTextareaOutput($questiontext)));
-
-		$est_working_time = $this->object->getEstimatedWorkingTime();
-		$tpl_qd->setVariable("TEXT_WORKING_TIME", $this->lng->txt("working_time"));
-		$tpl_qd->setVariable("TIME_FORMAT", $this->lng->txt("time_format"));
-		$tpl_qd->setVariable("VALUE_WORKING_TIME", ilUtil::makeTimeSelect("Estimated", false, $est_working_time[h], $est_working_time[m], $est_working_time[s]));
-
-		$tpl_qd->setVariable("TEXT_SOLUTION_HINT", $this->lng->txt("solution_hint"));
-
-		$tpl_qd->setVariable("SAVE",$this->lng->txt("save"));
-		$tpl_qd->setVariable("SAVE_EDIT", $this->lng->txt("save_edit"));
-		$tpl_qd->setVariable("CANCEL",$this->lng->txt("cancel"));
-		$tpl_qd->setVariable("TXT_REQUIRED_FLD", $this->lng->txt("required_field"));
-		$this->ctrl->setParameter($this, "sel_question_types", "assFormulaQuestion");
-		$tpl_qd->setVariable("FORMACTION", $this->ctrl->getFormAction($this, "parseQuestion"));
-		$tpl_qd->setVariable("TEXT_QUESTION_TYPE", $this->outQuestionType());
-		$tpl_qd->setVariable("PARSE_QUESTION", $this->object->getPlugin()->txt("parseQuestion"));
-		
-		$this->tpl->setCurrentBlock("HeadContent");
-		$this->tpl->setVariable("CONTENT_BLOCK", sprintf($javascript, "document.frmFormula.title.focus();"));
-		$this->tpl->parseCurrentBlock();
-
-		include_once "./Services/RTE/classes/class.ilRTE.php";
-		$rtestring = ilRTE::_getRTEClassname();
-		include_once "./Services/RTE/classes/class.$rtestring.php";
-		$rte = new $rtestring();
-		$rte->addPlugin("latex");
-		$rte->addButton("latex");
-		include_once "./classes/class.ilObject.php";
-		$obj_id = $_GET["q_id"];
-		$obj_type = ilObject::_lookupType($_GET["ref_id"], TRUE);
-		$rte->addRTESupport($obj_id, $obj_type, "assessment");
-
-		$this->tpl->setVariable("QUESTION_DATA", $tpl_qd->get());
-		include_once "./Services/YUI/classes/class.ilYuiUtil.php";
-		ilYuiUtil::initDomEvent();
-		$this->tpl->addCss($this->object->getPlugin()->getStyleSheetLocation("formula.css"));
+		if (!$checkonly) $this->tpl->setVariable("QUESTION_DATA", $form->getHTML());
+		return $errors;
 	}
 	
 	public function parseQuestion()
@@ -362,214 +265,7 @@ class assFormulaQuestionGUI extends assQuestionGUI
 		
 		return TRUE;
 	}
-
-	/**
-	* Evaluates a posted edit form and writes the form data in the question object
-	*
-	* Evaluates a posted edit form and writes the form data in the question object
-	*
-	* @return integer A positive value, if one of the required fields wasn't set, else 0
-	* @access private
-	*/
-	function writePostData()
-	{
-		global $ilLog;
-		$this->setErrorMessage("");
-		$checked = $this->checkInput();
-
-		$this->object->setTitle(ilUtil::stripSlashes($_POST["title"]));
-		$this->object->setAuthor(ilUtil::stripSlashes($_POST["author"]));
-		$this->object->setComment(ilUtil::stripSlashes($_POST["comment"]));
-		include_once "./Services/AdvancedEditing/classes/class.ilObjAdvancedEditing.php";
-		$questiontext = ilUtil::stripSlashes($_POST["question"], false, ilObjAdvancedEditing::_getUsedHTMLTagsAsString("assessment"));
-		$this->object->setQuestion($questiontext);
-		$this->object->setSuggestedSolution($_POST["solution_hint"], 0);
-		$saved = $this->writeOtherPostData();
-		$this->object->parseQuestionText();
-		$found_vars = array();
-		$found_results = array();
-		foreach ($_POST as $key => $value)
-		{
-			if (preg_match("/^unit_(\\\$v\d+)$/", $key, $matches))
-			{
-				array_push($found_vars, $matches[1]);
-			}
-			if (preg_match("/^unit_(\\\$r\d+)$/", $key, $matches))
-			{
-				array_push($found_results, $matches[1]);
-			}
-		}
-
-		if (!$this->object->checkForDuplicateVariables())
-		{
-			$this->addErrorMessage($this->object->getPlugin()->txt("err_duplicate_variables"));
-			$checked = FALSE;
-		}
-		if (!$this->object->checkForDuplicateResults())
-		{
-			$this->addErrorMessage($this->object->getPlugin()->txt("err_duplicate_results"));
-			$checked = FALSE;
-		}
-
-		foreach ($found_vars as $variable)
-		{
-			if ($this->object->getVariable($variable) != null)
-			{
-				$this->object->getPlugin()->includeClass("class.assFormulaQuestionVariable.php");
-				$varObj = new assFormulaQuestionVariable($variable, $_POST["range_min_$variable"], $_POST["range_max_$variable"], $this->object->getUnit($_POST["unit_$variable"]), $_POST["precision_$variable"], $_POST["intprecision_$variable"]);
-				// ERROR HANDLING
-				if (strlen($varObj->getRangeMin()) == 0)
-				{
-					$this->addErrorMessage($this->object->getPlugin()->txt("err_no_min_range"));
-					$checked = FALSE;
-				}
-				if (strlen($varObj->getRangeMax()) == 0)
-				{
-					$this->addErrorMessage($this->object->getPlugin()->txt("err_no_max_range"));
-					$checked = FALSE;
-				}
-				if (strlen($varObj->getPrecision()) == 0)
-				{
-					$this->addErrorMessage($this->object->getPlugin()->txt("err_no_precision"));
-					$checked = FALSE;
-				}
-				if (!is_numeric($varObj->getPrecision()))
-				{
-					$this->addErrorMessage($this->object->getPlugin()->txt("err_wrong_precision"));
-					$checked = FALSE;
-				}
-				if ($checked)
-				{
-					if ((!is_integer($varObj->getPrecision())) || ($varObj->getPrecision() < 0))
-					{
-						$this->addErrorMessage($this->object->getPlugin()->txt("err_wrong_precision"));
-						$checked = FALSE;
-					}
-				}
-				if ($checked)
-				{
-					if (!is_numeric($varObj->getRangeMin()))
-					{
-						$this->addErrorMessage($this->object->getPlugin()->txt("err_no_min_range_number"));
-						$checked = FALSE;
-					}
-				}
-				if ($checked)
-				{
-					if (!is_numeric($varObj->getRangeMax()))
-					{
-						$this->addErrorMessage($this->object->getPlugin()->txt("err_no_max_range_number"));
-						$checked = FALSE;
-					}
-				}
-				if ($checked)
-				{
-					if ($varObj->getRangeMin() > $varObj->getRangeMax())
-					{
-						$this->addErrorMessage($this->object->getPlugin()->txt("err_range"));
-						$checked = FALSE;
-					}
-				}
-				// END ERROR HANDLING
-				$this->object->addVariable($varObj);
-			}
-		}
-		foreach ($found_results as $result)
-		{
-			if ($this->object->getResult($result) != null)
-			{
-				$use_simple_rating = ($_POST["rating_simple_$result"] == 1) ? TRUE : FALSE;
-				$this->object->getPlugin()->includeClass("class.assFormulaQuestionResult.php");
-				$resObj = new assFormulaQuestionResult(
-					$result, 
-					$_POST["range_min_$result"], 
-					$_POST["range_max_$result"], 
-					$_POST["tolerance_$result"], 
-					$this->object->getUnit($_POST["unit_$result"]), 
-					$_POST["formula_$result"], 
-					$_POST["points_$result"], 
-					$_POST["precision_$result"], 
-					$use_simple_rating, 
-					($_POST["rating_simple_$result"] != 1) ? $_POST["rating_sign_$result"] : "",
-					($_POST["rating_simple_$result"] != 1) ? $_POST["rating_value_$result"] : "",
-					($_POST["rating_simple_$result"] != 1) ? $_POST["rating_unit_$result"] : ""
-				);
-				$this->object->addResult($resObj);
-				$this->object->addResultUnits($resObj, $_POST["units_$result"]);
-				$advanced_rating = $this->object->canUseAdvancedRating($resObj);
-				// ERROR HANDLING
-				if (!$advanced_rating && !$use_simple_rating)
-				{
-					$this->addErrorMessage($this->object->getPlugin()->txt("err_rating_advanced_not_allowed"));
-					$checked = FALSE;
-				}
-				if ($_POST["rating_simple_$result"] != 1)
-				{
-					$percentage = $_POST["rating_sign_$result"] + $_POST["rating_value_$result"] + $_POST["rating_unit_$result"];
-					if ($percentage != 100)
-					{
-						$this->addErrorMessage($this->object->getPlugin()->txt("err_wrong_rating_advanced"));
-						$checked = FALSE;
-					}
-				}
-				if ((!is_integer($resObj->getPrecision())) || ($resObj->getPrecision() < 0))
-				{
-					$this->addErrorMessage($this->object->getPlugin()->txt("err_wrong_precision"));
-					$checked = FALSE;
-				}
-				if (strlen($resObj->getTolerance))
-				{
-					if (!is_numeric($resObj->getTolerance()))
-					{
-						$this->addErrorMessage($this->object->getPlugin()->txt("err_tolerance_wrong_value"));
-						$checked = FALSE;
-					}
-					if ($checked)
-					{
-						if (($resObj->getTolerance() < 0) || ($resObj->getTolerance() > 100))
-						{
-							$this->addErrorMessage($this->object->getPlugin()->txt("err_tolerance_wrong_value"));
-							$checked = FALSE;
-						}
-					}
-				}
-				if (strlen($resObj->getFormula()) == 0)
-				{
-					$this->addErrorMessage($this->object->getPlugin()->txt("err_no_formula"));
-					$checked = FALSE;
-				}
-				if (strpos($resObj->getFormula(), $resObj->getResult()) !== FALSE)
-				{
-					$this->addErrorMessage($this->object->getPlugin()->txt("errRecursionInResult"));
-					$checked = FALSE;
-				}
-				if ((strlen($resObj->getPoints()) == 0) || (!is_numeric($resObj->getPoints())))
-				{
-					$this->addErrorMessage($this->object->getPlugin()->txt("err_wrong_points"));
-					$checked = FALSE;
-				}
-				// END ERROR HANDLING
-			}
-		}
-
-		// Set the question id from a hidden form parameter
-		if ($_POST["id"] > 0)
-		{
-			$this->object->setId($_POST["id"]);
-		}
-
-		if ($saved)
-		{
-			// If the question was saved automatically before an upload, we have to make
-			// sure, that the state after the upload is saved. Otherwise the user could be
-			// irritated, if he presses cancel, because he only has the question state before
-			// the upload process.
-			$this->object->saveToDb();
-			$this->ctrl->setParameter($this, "q_id", $this->object->getId());
-		}
-		return ($checked) ? 0 : 1;
-	}
-
+	
 	function outQuestionForTest($formaction, $active_id, $pass = NULL, $is_postponed = FALSE, $use_post_solutions = FALSE, $show_feedback = FALSE)
 	{
 		$test_output = $this->getTestOutput($active_id, $pass, $is_postponed, $use_post_solutions, $show_feedback); 
@@ -577,7 +273,29 @@ class assFormulaQuestionGUI extends assQuestionGUI
 		$this->tpl->setVariable("FORMACTION", $formaction);
 	}
 
-	function getSolutionOutput($active_id, $pass = NULL, $graphicalOutput = FALSE, $result_output = FALSE, $show_question_only = TRUE, $show_feedback = FALSE, $show_correct_solution = FALSE)
+	/**
+	* Get the question solution output
+	*
+	* @param integer $active_id The active user id
+	* @param integer $pass The test pass
+	* @param boolean $graphicalOutput Show visual feedback for right/wrong answers
+	* @param boolean $result_output Show the reached points for parts of the question
+	* @param boolean $show_question_only Show the question without the ILIAS content around
+	* @param boolean $show_feedback Show the question feedback
+	* @param boolean $show_correct_solution Show the correct solution instead of the user solution
+	* @param boolean $show_manual_scoring Show specific information for the manual scoring output
+	* @return The solution output of the question as HTML code
+	*/
+	function getSolutionOutput(
+		$active_id,
+		$pass = NULL,
+		$graphicalOutput = FALSE,
+		$result_output = FALSE,
+		$show_question_only = TRUE,
+		$show_feedback = FALSE,
+		$show_correct_solution = FALSE,
+		$show_manual_scoring = FALSE
+	)
 	{
 		// get the solution of the user for the active pass or from the last pass if allowed
 		$user_solution = "";
@@ -627,6 +345,7 @@ class assFormulaQuestionGUI extends assQuestionGUI
 		$questionoutput = $template->get();
 		$solutiontemplate = new ilTemplate("tpl.il_as_tst_solution_output.html",TRUE, TRUE, "Modules/TestQuestionPool");
 		$solutiontemplate->setVariable("SOLUTION_OUTPUT", $questionoutput);
+
 		$solutionoutput = $solutiontemplate->get(); 
 		if (!$show_question_only)
 		{
@@ -694,73 +413,21 @@ class assFormulaQuestionGUI extends assQuestionGUI
 		return $pageoutput;
 	}
 
-	function addSuggestedSolution()
-	{
-		$_SESSION["subquestion_index"] = 0;
-		if ($_POST["cmd"]["addSuggestedSolution"])
-		{
-			if ($this->writePostData())
-			{
-				ilUtil::sendInfo($this->getErrorMessage());
-				$this->editQuestion();
-				return;
-			}
-		}
-		$this->object->saveToDb();
-		$this->ctrl->setParameter($this, "q_id", $this->object->getId());
-		$this->tpl->setVariable("HEADER", $this->object->getTitle());
-		$this->getQuestionTemplate();
-		parent::addSuggestedSolution();
-	}
-
 	/**
-	* Saves the feedback for a single choice question
-	*
-	* Saves the feedback for a single choice question
+	* Saves the feedback for a formula question
 	*
 	* @access public
 	*/
 	function saveFeedback()
 	{
 		include_once "./Services/AdvancedEditing/classes/class.ilObjAdvancedEditing.php";
-		$this->object->saveFeedbackGeneric(0, ilUtil::stripSlashes($_POST["feedback_incomplete"], false, ilObjAdvancedEditing::_getUsedHTMLTagsAsString("assessment")));
-		$this->object->saveFeedbackGeneric(1, ilUtil::stripSlashes($_POST["feedback_complete"], false, ilObjAdvancedEditing::_getUsedHTMLTagsAsString("assessment")));
+		$errors = $this->feedback(true);
+		$this->object->saveFeedbackGeneric(0, $_POST["feedback_incomplete"]);
+		$this->object->saveFeedbackGeneric(1, $_POST["feedback_complete"]);
 		$this->object->cleanupMediaObjectUsage();
 		parent::saveFeedback();
 	}
 
-	/**
-	* Creates the output of the feedback page for a single choice question
-	*
-	* Creates the output of the feedback page for a single choice question
-	*
-	* @access public
-	*/
-	function feedback()
-	{
-		$template = $this->object->getPlugin()->getTemplate("tpl.il_as_qpl_formulaquestion_feedback.html");
-		$template->setVariable("FEEDBACK_TEXT", $this->lng->txt("feedback"));
-		$template->setVariable("FEEDBACK_COMPLETE", $this->lng->txt("feedback_complete_solution"));
-		$template->setVariable("VALUE_FEEDBACK_COMPLETE", ilUtil::prepareFormOutput($this->object->prepareTextareaOutput($this->object->getFeedbackGeneric(1)), FALSE));
-		$template->setVariable("FEEDBACK_INCOMPLETE", $this->lng->txt("feedback_incomplete_solution"));
-		$template->setVariable("VALUE_FEEDBACK_INCOMPLETE", ilUtil::prepareFormOutput($this->object->prepareTextareaOutput($this->object->getFeedbackGeneric(0)), FALSE));
-		$template->setVariable("FEEDBACK_ANSWERS", $this->lng->txt("feedback_answers"));
-		$template->setVariable("SAVE", $this->lng->txt("save"));
-		$template->setVariable("FORMACTION", $this->ctrl->getFormAction($this));
-
-		include_once "./Services/RTE/classes/class.ilRTE.php";
-		$rtestring = ilRTE::_getRTEClassname();
-		include_once "./Services/RTE/classes/class.$rtestring.php";
-		$rte = new $rtestring();
-		$rte->addPlugin("latex");
-		$rte->addButton("latex");
-		include_once "./classes/class.ilObject.php";
-		$obj_id = $_GET["q_id"];
-		$obj_type = ilObject::_lookupType($_GET["ref_id"], TRUE);
-		$rte->addRTESupport($obj_id, $obj_type, "assessment");
-		$this->tpl->setVariable("ADM_CONTENT", $template->get());
-	}
-	
 	/**
 	* Adds a new category to the units
 	*
