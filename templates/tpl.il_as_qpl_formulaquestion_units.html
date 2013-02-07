@@ -73,18 +73,18 @@
 <script type="text/javascript" charset="utf-8">
 	function selectCategory(e)
 	{
-		unitForm = YAHOO.util.Dom.get("unitForm");
+		var unitForm = YAHOO.util.Dom.get("unitForm");
 		unitForm.submit();
 	}
 	function selectUnit(e)
 	{
-		unitForm = YAHOO.util.Dom.get("unitForm");
+		var unitForm = YAHOO.util.Dom.get("unitForm");
 		unitForm.submit();
 	}
 	
 	function init()
 	{
-		unitName = YAHOO.util.Dom.get("unitname");
+		var unitName = YAHOO.util.Dom.get("unitname");
 		if (unitName != null)
 		{
 			unitName.focus();
@@ -120,13 +120,13 @@ YAHOO.example.DDApp = {
 		ul = Dom.get("reorder");
 		if (ul != null)
 		{
-			items = ul.getElementsByTagName("li");
-			unitsequence = "";
+			var items = ul.getElementsByTagName("li");
+			var unitsequence = "";
 			for (i=0;i<items.length;i=i+1) {
 				unitsequence += items[i].id;
 				if (i < items.length-1) unitsequence += ",";
 			}
-			hiddenelement = Dom.get("unitsequence");
+			var hiddenelement = Dom.get("unitsequence");
 			if (hiddenelement != null)
 			{
 				hiddenelement.value = unitsequence;

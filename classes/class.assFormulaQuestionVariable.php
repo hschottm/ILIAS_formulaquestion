@@ -74,16 +74,19 @@ class assFormulaQuestionVariable
 			$calcval = ilMath::_div($rnd, $mul, $this->getPrecision());
 			if (($this->getPrecision() == 0) && ($this->getIntprecision() != 0))
 			{
-				$modulo = $calcval % $this->getIntprecision();
-				if ($modulo != 0)
+				if ($this->getIntprecision() > 0)
 				{
-					if ($modulo < ilMath::_div($this->getIntprecision(), 2))
+					$modulo = $calcval % $this->getIntprecision();
+					if ($modulo != 0)
 					{
-						$calcval = ilMath::_sub($calcval, $modulo, $this->getPrecision());
-					}
-					else
-					{
-						$calcval = ilMath::_add($calcval, ilMath::_sub($this->getIntprecision(), $modulo, $this->getPrecision()), $this->getPrecision());
+						if ($modulo < ilMath::_div($this->getIntprecision(), 2))
+						{
+							$calcval = ilMath::_sub($calcval, $modulo, $this->getPrecision());
+						}
+						else
+						{
+							$calcval = ilMath::_add($calcval, ilMath::_sub($this->getIntprecision(), $modulo, $this->getPrecision()), $this->getPrecision());
+						}
 					}
 				}
 			}
